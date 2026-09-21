@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <title>Emulador de APK Web</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    #screen-container {
+      width: 360px;
+      height: 640px;
+      background-color: #808080;
+      border: 4px solid #333;
+      border-radius: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    #canvas-app {
+      width: 100%;
+      height: 100%;
+    }
+    #terminal {
+      width: 100%;
+      max-width: 600px;
+      background: #1e1e1e;
+      color: #00ff00;
+      font-family: monospace;
+      padding: 10px;
+      margin-top: 20px;
+      border-radius: 5px;
+      height: 150px;
+      overflow-y: auto;
+    }
+    .error-msg {
+      color: #ff5555;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Emulador de APK Web</h2>
+  <input type="file" id="apkInput" accept=".apk">
+
+  <div id="screen-container">
+    <canvas id="canvas-app" width="360" height="640"></canvas>
+  </div>
+
+  <div id="terminal">> Selecione um arquivo .apk para iniciar...</div>
+
+<script>
+  const terminal = document.getElementById('terminal');
+  const input = document.getElementById('apkInput');
+  const canvas = document.getElementById('canvas-app');
+  const ctx = canvas.getContext('2d');
+
+  let arquivosInstalados = {};
+
+  function log(texto, isError = false) {
+    if (isError) {
+      terminal.innerHTML += `<br><span class="error-msg">${texto}</span>`;
+    } else {
+      terminal.textContent += '\n' + texto;
+    }
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+
+  // Desenha a tela cinza com o status de instalação
+  function desenharInstalacao(progresso, ficheiroAtual) {
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#1e1e1e';
+    ctx.fillRect(20, 180, 320, 280);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Instalando pacote APK...', canvas.width / 2, 220);
+
+    // Barra de progresso
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, 260, 280, 20);
+
+    ctx.fillStyle = '#00ff66';
+    ctx.fillRect(42, 262, (276 * progresso) / 100, 16);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px Arial';
+    ctx.fillText(`${Math.round(progresso)}%`, canvas.width / 2, 300);
+
+    ctx.font = '10px Monospace';
+    ctx.fillStyle = '#cccccc';
+    const textoCortado = ficheiroAtual.length > 35 ? '...' + ficheiroAtual.slice(-30) : ficheiroAtual;
+    ctx.fillText(`Extraindo: ${textoCortado}`, canvas.width / 2, 330);
+  }
+
+  // Função para iniciar o aplicativo após o download/instalação terminar
+  function iniciarAplicativo(nomeApk) {
+    log('\n[INICIANDO APLICATIVO]');
+    log('> Abrindo interface do app instalado...');
+
+    // Limpa a tela de instalação
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Fundo do aplicativo rodando (Simulação da tela inicial do App)
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Barra de status do sistema no topo
+    ctx.fillStyle = '#00000055';
+    ctx.fillRect(0, 0, canvas.width, 30);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('12:00', 15, 20);
+
+    // Interface do App executando
+    ctx.textAlign = 'center';
+    
+    // Ícone simulado
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, 200, 40, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Texto de boas-vindas / execução
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText('Aplicativo em Execução', canvas.width / 2, 280);
+
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(nomeApk, canvas.width / 2, 310);
+
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(50, 360, 260, 45);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('App Ativo e Pronto', canvas.width / 2, 387);
+
+    log('> Aplicativo iniciado com sucesso no emulador!');
+  }
+
+  // Desenha a tela inicial (esperando arquivo)
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  input.addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    terminal.textContent = '';
+    arquivosInstalados = {};
+
+    if (!file.name.toLowerCase().endsWith('.apk')) {
+      log(`[ERRO CRÍTICO] O ficheiro "${file.name}" não é um APK válido!`, true);
+      input.value = '';
+      return;
+    }
+
+    log(`> Carregando pacote: ${file.name}...`);
+
+    try {
+      const zip = new JSZip();
+      const contents = await zip.loadAsync(file);
+
+      const listaFicheiros = Object.keys(contents.files);
+      const totalFicheiros = listaFicheiros.length;
+
+      if (totalFicheiros === 0) {
+        log('[ERRO] O pacote APK está vazio.', true);
+        return;
+      }
+
+      log(`\n--- INICIANDO INSTALAÇÃO DOS ARQUIVOS ---`);
+
+      let processados = 0;
+      let dexEncontrado = false;
+
+      // Extração de arquivos
+      for (const nomeFicheiro of listaFicheiros) {
+        processados++;
+        const progresso = (processados / totalFicheiros) * 100;
+
+        if (nomeFicheiro.endsWith('.dex')) {
+          dexEncontrado = true;
+        }
+
+        if (!contents.files[nomeFicheiro].dir) {
+          arquivosInstalados[nomeFicheiro] = await contents.files[nomeFicheiro].async('blob');
+        }
+
+        desenharInstalacao(progresso, nomeFicheiro);
+
+        if (processados % 10 === 0 || processados === totalFicheiros) {
+          log(`> Extraído: ${nomeFicheiro}`);
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+      }
+
+      if (!dexEncontrado) {
+        log('[ERRO] Nenhum código executável (.dex) encontrado.', true);
+        return;
+      }
+
+      log('\n[DOWNLOAD/INSTALAÇÃO CONCLUÍDA]');
+      log(`> Total de arquivos instalados: ${Object.keys(arquivosInstalados).length}`);
+
+      // Chamar automaticamente a inicialização do aplicativo assim que o download terminar
+      iniciarAplicativo(file.name);
+
+    } catch (err) {
+      log(`[ERRO DE INSTALAÇÃO] O ficheiro está corrompido: ${err.message}`, true);
+    }
+  });
+</script>
+
+</body>
+</html>
